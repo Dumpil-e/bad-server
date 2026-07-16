@@ -14,6 +14,8 @@ import routes from './routes'
 const { PORT = 3000 } = process.env
 const app = express()
 
+app.set('trust proxy', 1)
+
 app.use(cookieParser())
 
 const corsOptions = {
@@ -22,13 +24,38 @@ const corsOptions = {
 }
 app.use(cors(corsOptions))
 
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 минут
-    max: 100, // максимум 100 запросов с одного IP
+const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     standardHeaders: true,
     legacyHeaders: false,
 })
-app.use(limiter)
+app.use(globalLimiter)
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10, // всего 10 попыток за 15 минут
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: 'Слишком много запросов, попробуйте позже',
+    },
+})
+
+const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: 'Слишком много загрузок, попробуйте позже',
+    },
+})
+
+app.use('/auth', authLimiter)
+app.use('/upload', uploadLimiter)
 
 app.use(serveStatic(path.join(__dirname, 'public')))
 
@@ -39,13 +66,13 @@ app.use(routes)
 app.use(errors())
 app.use(errorHandler)
 
-const bootstrap = async () => {
-    try {
-        await mongoose.connect(DB_ADDRESS)
-        await app.listen(PORT, () => console.log('ok'))
-    } catch (error) {
-        console.error(error)
-    }
+const bootstrap = () => {
+    mongoose
+        .connect(DB_ADDRESS)
+        .then(() => {
+            app.listen(PORT, () => console.log('ok'))
+        })
+        .catch(console.error)
 }
 
 bootstrap()
