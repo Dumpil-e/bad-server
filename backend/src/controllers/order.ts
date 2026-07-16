@@ -1,10 +1,12 @@
 import { NextFunction, Request, Response } from 'express'
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
+import { escape } from 'html-escaper'
 import BadRequestError from '../errors/bad-request-error'
 import NotFoundError from '../errors/not-found-error'
 import Order, { IOrder } from '../models/order'
 import Product, { IProduct } from '../models/product'
 import User from '../models/user'
+import escapeRegExp from '../utils/escapeRegExp'
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -28,15 +30,17 @@ export const getOrders = async (
             search,
         } = req.query
 
-        const filters: FilterQuery<Partial<IOrder>> = {}
+        // Нормализация лимита (максимум 10)
+        const normalizedLimit = Math.min(Number(limit) || 10, 10)
+        const normalizedPage = Number(page) || 1
 
-        if (status) {
-            if (typeof status === 'object') {
-                Object.assign(filters, status)
+        const filters: FilterQuery<Partial<IOrder>> = {}
+        
+        if (status !== undefined) {
+            if (typeof status !== 'string') {
+                return next(new BadRequestError('Недопустимый формат status'))
             }
-            if (typeof status === 'string') {
-                filters.status = status
-            }
+            filters.status = status
         }
 
         if (totalAmountFrom) {
@@ -90,7 +94,9 @@ export const getOrders = async (
         ]
 
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            // Экранирование для защиты от ReDoS
+            const escapedSearch = escapeRegExp(search as string)
+            const searchRegex = new RegExp(escapedSearch, 'i')
             const searchNumber = Number(search)
 
             const searchConditions: any[] = [{ 'products.title': searchRegex }]
@@ -116,8 +122,8 @@ export const getOrders = async (
 
         aggregatePipeline.push(
             { $sort: sort },
-            { $skip: (Number(page) - 1) * Number(limit) },
-            { $limit: Number(limit) },
+            { $skip: (normalizedPage - 1) * normalizedLimit },
+            { $limit: normalizedLimit },
             {
                 $group: {
                     _id: '$_id',
@@ -133,15 +139,15 @@ export const getOrders = async (
 
         const orders = await Order.aggregate(aggregatePipeline)
         const totalOrders = await Order.countDocuments(filters)
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        const totalPages = Math.ceil(totalOrders / normalizedLimit)
 
         res.status(200).json({
             orders,
             pagination: {
                 totalOrders,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: normalizedPage,
+                pageSize: normalizedLimit,
             },
         })
     } catch (error) {
@@ -184,18 +190,16 @@ export const getOrdersCurrentUser = async (
         let orders = user.orders as unknown as IOrder[]
 
         if (search) {
-            // если не экранировать то получаем Invalid regular expression: /+1/i: Nothing to repeat
-            const searchRegex = new RegExp(search as string, 'i')
+            const escapedSearch = escapeRegExp(search as string)
+            const searchRegex = new RegExp(escapedSearch, 'i')
             const searchNumber = Number(search)
             const products = await Product.find({ title: searchRegex })
             const productIds = products.map((product) => product._id)
 
             orders = orders.filter((order) => {
-                // eslint-disable-next-line max-len
                 const matchesProductTitle = order.products.some((product) =>
                     productIds.some((id) => id.equals(product._id))
                 )
-                // eslint-disable-next-line max-len
                 const matchesOrderNumber =
                     !Number.isNaN(searchNumber) &&
                     order.orderNumber === searchNumber
@@ -309,13 +313,15 @@ export const createOrder = async (
             return next(new BadRequestError('Неверная сумма заказа'))
         }
 
+        const sanitizedComment = comment ? escape(comment) : ''
+
         const newOrder = new Order({
             totalAmount: total,
             products: items,
             payment,
             phone,
             email,
-            comment,
+            comment: sanitizedComment,
             customer: userId,
             deliveryAddress: address,
         })
