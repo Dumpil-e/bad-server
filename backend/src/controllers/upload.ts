@@ -1,6 +1,5 @@
 import { NextFunction, Request, Response } from 'express'
 import { constants } from 'http2'
-import { join } from 'path'
 import sharp from 'sharp'
 import BadRequestError from '../errors/bad-request-error'
 
@@ -20,7 +19,7 @@ export const uploadFile = async (
             )
         }
         
-        const filePath = join(__dirname, '../public', req.file.filename)
+        const filePath = req.file.path
         try {
             const metadata = await sharp(filePath).metadata()
             if (!metadata.width || !metadata.height) {
