@@ -35,9 +35,11 @@ export const getOrders = async (
         const normalizedPage = Number(page) || 1
 
         const filters: FilterQuery<Partial<IOrder>> = {}
-
-        // Защита от NoSQL-инъекции: принимаем только строку
-        if (status && typeof status === 'string') {
+        
+        if (status !== undefined) {
+            if (typeof status !== 'string') {
+                return next(new BadRequestError('Недопустимый формат status'))
+            }
             filters.status = status
         }
 
