@@ -2,13 +2,9 @@ import crypto from 'crypto'
 import { NextFunction, Request, Response } from 'express'
 import ForbiddenError from '../errors/forbidden-error'
 
-const CSRF_COOKIE_NAME = 'csrf-token'
+const CSRF_COOKIE_NAME = '_csrf'
 const CSRF_HEADER_NAME = 'x-csrf-token'
-const CSRF_BODY_NAME = 'csrfToken'
 
-/**
- * Генерирует новый CSRF-токен и устанавливает его в cookie.
- */
 export const generateCsrfToken = (res: Response): string => {
     const token = crypto.randomBytes(32).toString('hex')
 
@@ -42,8 +38,9 @@ export const csrfProtection = (
 
     const cookieToken = req.cookies[CSRF_COOKIE_NAME]
     const headerToken = req.headers[CSRF_HEADER_NAME] as string | undefined
-    const body = (req.body ?? {}) as Record<string, unknown>
-    const bodyToken = body[CSRF_BODY_NAME] as string | undefined
+    
+    const { _csrf, csrfToken: bodyCsrfToken } = req.body || {}
+    const bodyToken = _csrf || bodyCsrfToken
 
     const token = headerToken || bodyToken
 
